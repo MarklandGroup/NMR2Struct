@@ -168,7 +168,30 @@ analysis:
   analysis_type: "substructure"
   pattern: "predictions_dataset_0_[0-9]+.h5"
 ```
-This will calculate metrics such as RMSEs, F1-scores, BCE values, etc. and saves the results as a dictionary at ```global_args.savedir```. 
+This will calculate metrics such as RMSEs, F1-scores, BCE values, etc. and saves the results as a dictionary pickle file at ```global_args.savedir```. The format of the dictionary is as follows:
+
+```
+substructure_metrics.pkl
+├── test
+│   ├── substruct_losses
+│   ├── substruct_avg_loss
+│   ├── substruct_accs
+│   ├── substruct_avg_acc
+│   ├── roc_auc_score
+│   ├── precision
+│   ├── recall
+│   ├── prc_auc_score
+│   ├── fscore
+│   ├── exact_seq_match_percent
+│   ├── avg_seq_bce
+│   ├── root_power_2
+│   ├── root_power_3
+│   └── root_power_4
+└── ...
+```
+
+Where the `...` denotes additional keys corresponding to the training and validation sets if analysis was done on them. For comparison with the metrics presented in the paper, the value that we care about is the 
+substructure F1 score, which corresponds to the key `fscore` in the dictionary.
 
 For SMILES analysis, configure the ```analysis``` section as follows:
 ```yaml
@@ -179,7 +202,40 @@ analysis:
     substructures: PATH TO SUBSTRUCTURE FILE
 ```
 where the substructures is set to point to the ```example_configs/substructures_957.p``` file which contains the SMART strings for the 957 substructures used. The results will be saved to 
-a hdf5 file called ```processed_predictions.h5``` located at ```global_args.savedir```. 
+a hdf5 file called ```processed_predictions.h5``` located at ```global_args.savedir```. The structure of ```processed_predictions.h5``` is as follows:
+
+```
+processed_predictions.h5
+├── test
+│   ├── bad_predictions
+│   │   ├── predictions
+│   │   ├── scores
+│   │   └── targets
+│   └── valid_predictions
+│       ├── 0
+│       │   ├── num_heavy_atoms
+│       │   ├── prediction_bce_losses
+│       │   ├── prediction_scores
+│       │   ├── prediction_strings
+│       │   └── target
+│       └── ...
+└── ...
+```
+For each subset of the data (```train```, ```val```, ```test```) there is a ```bad_predictions``` and a ```valid_predictions``` key. The ```bad_predictions``` key contains the set of all cases where the model was unable to generate
+any valid SMILES strings within the specified number of predictions for each target. The field ```bad_predictions.predictions``` contains an array of shape (`num_failed`, `num_pred_per_tgt`) where each row contains all the generated predictions 
+that were unparasable for a given target. The targets themselves are scored in the ```bad_predictions.targets``` key. The ```bad_predictions.scores``` key contains the sum of the log probabilities for the given sequence, so the exponential of this 
+quantity can be considered as the total probability of the given sequence to be sampled from the transformer. 
+
+The ```valid_predictions``` key contains the set of all targets for which the model was able to predict at least one valid SMILES strings. Each entry is designated by zero-indexed number string. Within the group for each molecule there are five keys:
+
+- ```num_heavy_atoms```: The number of heavy (non-hydrogen) atoms in the given molecule.
+- ```prediction_bce_losses```: The binary cross entropy losses computed between the target molecule and each of the predictions by representing all molecules in terms of their substructure vectors. The lower the loss the better. For numerical reasons, values on the order of 1e-16 should be considered zero.
+- ```prediction_scores```: The score for each prediction, which is again the sum of log probabilities computed along the sequence.
+- ```prediction_strings```: The predicted and canonicalized SMILES strings.
+- ```target```: The SMILES string target that the model is trying to predict.
+
+Calculation of any performance metrics should be done over the ```processed_predictions.h5``` file, and it should be very straightforward to compute things such as string prediction accuracy by simply checking if for each valid prediction the target appears within the set of predictions, which is indeed
+how the metrics were computed in the paper.
 
 # Tensorboard visualization
 NMR2Struct uses [Tensorboard](https://www.tensorflow.org/tensorboard) to visualize the learning curves when training the models, and it is installed with the environment. To use Tensorboard, do the following:
